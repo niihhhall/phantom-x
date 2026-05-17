@@ -80,11 +80,54 @@ class LinkedInBrowser:
             
         # Determine the user data profile directory path
         import os
+        import datetime
         from pathlib import Path
         profile_dir = Path(settings.PROFILE_STORAGE_PATH) / f"profile_{self.account_id}"
         os.makedirs(profile_dir, exist_ok=True)
         
+        # 1. Fetch custom hardware fingerprint and session state from database
+        db_client = None
+        fingerprint_data = {}
+        session_state_data = {}
+        try:
+            from app.core.database import get_db_client
+            db_client = get_db_client()
+            res = await db_client.table("linkedin_accounts").select("fingerprint, session_state").eq("id", self.account_id).execute()
+            if res.data:
+                account_record = res.data[0]
+                fingerprint_data = account_record.get("fingerprint") or {}
+                session_state_data = account_record.get("session_state") or {}
+        except Exception as dbe:
+            logger.warning(f"Failed to fetch account fingerprints from database: {dbe}")
+            
         self.browser = None # persistent context handles browser lifecycle
+        
+        # Determine fingerprint spoof parameters (Stage 3 Hardware Twin)
+        user_agent = fingerprint_data.get("user_agent") or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        width = fingerprint_data.get("screen_width") or chosen_res["width"]
+        height = fingerprint_data.get("screen_height") or chosen_res["height"]
+        webgl_vendor = fingerprint_data.get("webgl_vendor") or "Google Inc. (Intel)"
+        logger.info(f"Stealth fingerprint initialized -> UA: {user_agent}, Res: {width}x{height}, WebGL: {webgl_vendor}")
+        
+        # Configure proxy (support for high-cost Decodo, falling back to free SOCKS5 Squid/Tailscale proxy)
+        proxy_config = None
+        if settings.DECODO_USERNAME and settings.DECODO_PASSWORD and self.headless:
+            if "dummy" not in settings.DECODO_USERNAME.lower():
+                proxy_config = {
+                    "server": "http://gateway.decodo.co:8000",
+                    "username": settings.DECODO_USERNAME,
+                    "password": settings.DECODO_PASSWORD
+                }
+                logger.info(f"Routing browser via Decodo proxy country={self.proxy_country}")
+                
+        # Free SOCKS5 / SQUID Proxy Home-Bridge fallback (Stage 2)
+        if not proxy_config:
+            free_proxy_url = os.environ.get("SOCKS5_PROXY_URL") or os.environ.get("FREE_PROXY_URL")
+            if free_proxy_url:
+                proxy_config = {
+                    "server": free_proxy_url
+                }
+                logger.info(f"Routing browser via Free/Local SOCKS5 proxy: {free_proxy_url}")
         
         # Explicitly use the standard chromium engine we downloaded to bypass missing headless_shell errors
         executable_path = Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright" / "chromium-1169" / "chrome-win" / "chrome.exe"
@@ -93,7 +136,7 @@ class LinkedInBrowser:
             user_data_dir=str(profile_dir.resolve()),
             executable_path=str(executable_path) if executable_path.exists() else None,
             headless=self.headless,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            user_agent=user_agent,
             proxy=proxy_config,
             viewport={"width": width, "height": height},
             args=[
@@ -105,55 +148,63 @@ class LinkedInBrowser:
             ]
         )
         
+        # If cloned cookies are available from previous keep-alive heartbeats, load them dynamically
+        if session_state_data and "cookies" in session_state_data:
+            try:
+                await self.context.add_cookies(session_state_data["cookies"])
+                logger.info("Successfully injected prior keep-alive cookie session array.")
+            except Exception as ce:
+                logger.warning(f"Could not restore full session cookies payload: {ce}")
+        
         # Injects script to randomize canvas fingerprint and spoof WebGL renderer (anti-detection stealth layer)
-        await self.context.add_init_script("""
+        await self.context.add_init_script(f"""
             // Override chrome runtime object
-            window.chrome = {
-                runtime: {}
-            };
+            window.chrome = {{
+                runtime: {{}}
+            }};
             
             // Languages spoof
-            Object.defineProperty(navigator, 'languages', {
+            Object.defineProperty(navigator, 'languages', {{
                 get: () => ['en-US', 'en']
-            });
+            }});
             
             // Plugins list spoof
-            Object.defineProperty(navigator, 'plugins', {
+            Object.defineProperty(navigator, 'plugins', {{
                 get: () => [1, 2, 3, 4, 5]
-            });
+            }});
             
             // WebGL Renderer Spoofing
             const getParameter = WebGLRenderingContext.prototype.getParameter;
-            WebGLRenderingContext.prototype.getParameter = function(parameter) {
+            WebGLRenderingContext.prototype.getParameter = function(parameter) {{
                 // UNMASKED_VENDOR_WEBGL = 37445
-                if (parameter === 37445) {
-                    return 'Google Inc. (Intel)';
-                }
+                if (parameter === 37445) {{
+                    return '{webgl_vendor}';
+                }}
                 // UNMASKED_RENDERER_WEBGL = 37446
-                if (parameter === 37446) {
+                if (parameter === 37446) {{
                     const renderers = [
                         'ANGLE (Intel, Intel(R) UHD Graphics (0x9BC8) Direct3D11 vs_5_0 ps_5_0)',
                         'Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0',
                         'NVIDIA GeForce RTX 3060/PCIe/SSE2'
                     ];
                     return renderers[Math.floor(Math.random() * renderers.length)];
-                }
+                }}
                 return getParameter.apply(this, arguments);
-            };
+            }};
 
             // Canvas Fingerprint Randomization (add subtle noise to canvas calls)
             const toDataURL = HTMLCanvasElement.prototype.toDataURL;
-            HTMLCanvasElement.prototype.toDataURL = function() {
+            HTMLCanvasElement.prototype.toDataURL = function() {{
                 const ctx = this.getContext('2d');
-                if (ctx) {
+                if (ctx) {{
                     // Inject imperceptible single-pixel canvas noise
                     const oldStyle = ctx.fillStyle;
                     ctx.fillStyle = 'rgba(0,0,0,0.01)';
                     ctx.fillRect(0, 0, 1, 1);
                     ctx.fillStyle = oldStyle;
-                }
+                }}
                 return toDataURL.apply(this, arguments);
-            };
+            }};
         """)
         
         if self.context.pages:
@@ -173,6 +224,8 @@ class LinkedInBrowser:
             await human_delay(3.0, 5.0)
             if "feed" in self.page.url:
                 logger.info("Session already authenticated via persistent browser cache!")
+                # Run keep-alive refresh
+                await self.perform_keep_alive_sync(li_at)
                 return True
         except Exception as e:
             logger.warning(f"Error navigating during session verification check: {e}")
@@ -195,6 +248,7 @@ class LinkedInBrowser:
                 await human_delay(4.0, 7.0)
                 if "feed" in self.page.url:
                     logger.info("Successfully validated session via fallback URL structure.")
+                    await self.perform_keep_alive_sync(li_at)
                     return True
             except Exception:
                 pass
@@ -204,12 +258,54 @@ class LinkedInBrowser:
             search_box = await self.page.wait_for_selector(".global-nav__search-input", timeout=6000)
             if search_box:
                 logger.info("Successfully validated session via presence of search bar.")
+                await self.perform_keep_alive_sync(li_at)
                 return True
         except Exception:
             pass
             
+        # If we failed verification, update account session state in database
+        try:
+            from app.core.database import get_db_client
+            db = get_db_client()
+            await db.table("linkedin_accounts").update({
+                "session_valid": False,
+                "status": "expired",
+                "last_health_check": datetime.datetime.now(datetime.timezone.utc).isoformat()
+            }).eq("id", self.account_id).execute()
+        except Exception as se:
+            logger.warning(f"Failed to record expired session state in database: {se}")
+            
         logger.warning("Failed to authenticate session using either persistent cache or fallback cookie.")
         return False
+
+    async def perform_keep_alive_sync(self, current_li_at: str):
+        """Refreshes and syncs dynamic cookies returned by LinkedIn to Supabase to keep the session alive indefinitely."""
+        try:
+            from app.core.database import get_db_client
+            from app.core.auth import encrypt_cookie
+            db = get_db_client()
+            
+            all_cookies = await self.context.cookies()
+            refreshed_li_at = None
+            for c in all_cookies:
+                if c["name"] == "li_at":
+                    refreshed_li_at = c["value"]
+                    break
+                    
+            # Auto-rotate session state and mark as valid
+            update_payload = {
+                "session_valid": True,
+                "last_health_check": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "session_state": {"cookies": all_cookies}
+            }
+            
+            if refreshed_li_at and refreshed_li_at != current_li_at:
+                logger.info("KEEP-ALIVE ACTIVE: LinkedIn cookie has rotated. Encrypting and saving updated token to Supabase...")
+                update_payload["li_at_encrypted"] = encrypt_cookie(refreshed_li_at)
+                
+            await db.table("linkedin_accounts").update(update_payload).eq("id", self.account_id).execute()
+        except Exception as ke:
+            logger.warning(f"Failed to perform automated keep-alive sync: {ke}")
 
     async def scrape_profile(self, profile_url: str) -> Dict[str, Any]:
         """Navigate to profile URL and extract key user details with fallback mechanisms."""
