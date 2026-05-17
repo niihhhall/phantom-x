@@ -1,0 +1,25 @@
+# Caddyfile: Self-Hosted Reverse Proxy Configuration
+
+:80 {
+    # Enable access log
+    log {
+        output file /var/log/caddy/access.log
+        format json
+    }
+
+    # 1. Proxy API routes directly to our FastAPI application
+    handle /api/* {
+        uri strip_prefix /api
+        reverse_proxy api:8000
+    }
+
+    # 2. Proxy n8n dashboard visual editor
+    handle /n8n/* {
+        reverse_proxy n8n:5678
+    }
+
+    # 3. Default fallback to FastAPI UI docs/entry
+    handle {
+        reverse_proxy api:8000
+    }
+}

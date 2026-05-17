@@ -1,0 +1,108 @@
+version: '3.8'
+
+services:
+  # 1. FastAPI API Application Server
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: phantomx-api
+    ports:
+      - "8000:8000"
+    environment:
+      - SUPABASE_URL=http://db:3000
+      - SUPABASE_ANON_KEY=placeholder_anon_key
+      - SUPABASE_SERVICE_KEY=placeholder_service_key
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET=phantomx_jwt_secret_key_change_me_in_production
+      - DECODO_USERNAME=${DECODO_USERNAME:-}
+      - DECODO_PASSWORD=${DECODO_PASSWORD:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - APOLLO_API_KEY=${APOLLO_API_KEY:-}
+      - HUNTER_API_KEY=${HUNTER_API_KEY:-}
+    depends_on:
+      - redis
+      - db
+    volumes:
+      - ../app:/app/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
+
+  # 2. Background Playwright Worker Engine (High-Performance Headless Scraper)
+  playwright-worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile.worker
+    container_name: phantomx-playwright-worker
+    environment:
+      - SUPABASE_URL=http://db:3000
+      - SUPABASE_ANON_KEY=placeholder_anon_key
+      - SUPABASE_SERVICE_KEY=placeholder_service_key
+      - REDIS_URL=redis://redis:6379/0
+      - DECODO_USERNAME=${DECODO_USERNAME:-}
+      - DECODO_PASSWORD=${DECODO_PASSWORD:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    depends_on:
+      - redis
+      - api
+    volumes:
+      - ../app:/app/app
+      - playwright_profiles:/app/app/profiles
+    restart: unless-stopped
+
+  # 3. Local PostgreSQL Relational Storage Engine
+  db:
+    image: postgres:15-alpine
+    container_name: phantomx-db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgrespassword
+      - POSTGRES_DB=phantomx
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  # 4. n8n Workflow Orchestrator
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: phantomx-n8n
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=phantomx123
+      - WEBHOOK_URL=http://localhost:5678
+    volumes:
+      - n8n_data:/home/node/.n8n
+    restart: unless-stopped
+
+  # 5. Local Redis Task Queue Cache
+  redis:
+    image: redis:7-alpine
+    container_name: phantomx-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  # 6. Reverse Proxy with Auto HTTPS Routing
+  caddy:
+    image: caddy:2-alpine
+    container_name: phantomx-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  playwright_profiles:
+  n8n_data:
+  caddy_data:
+  caddy_config:
