@@ -113,7 +113,8 @@ async def handle_connect(job_id: str, payload: dict) -> dict:
     
     client = get_db_client()
     acc_res = await client.table("linkedin_accounts").select("*").eq("id", account_id).execute()
-    proxy_country = acc_res.data[0].get("proxy_country", "US") if acc_res.data else "US"
+    account = acc_res.data[0] if acc_res.data else {"actions_today": 0, "proxy_country": "US"}
+    proxy_country = account.get("proxy_country", "US")
     
     async with LinkedInBrowser(workspace_id, account_id, proxy_country) as browser:
         logged_in = await browser.login_via_cookie(li_at)
@@ -124,7 +125,7 @@ async def handle_connect(job_id: str, payload: dict) -> dict:
         if success:
             await update_lead_stage(lead_id, "sent")
             # Log action usage to account limits
-            await client.rpc("increment_actions", {"account_id": account_id}).execute()
+            await client.table("linkedin_accounts").update({"actions_today": account["actions_today"] + 1}).eq("id", account_id).execute()
             
         return {"success": success, "lead_id": lead_id}
 

@@ -125,6 +125,31 @@ async def force_health_check(account_id: str, current_user: dict = Depends(get_c
     job = await queue_health_check_job(current_user["workspace_id"], account_id)
     return {"message": "Health check queued", "job_id": job["id"]}
 
+@router.get("/{account_id}/health")
+async def get_account_health(account_id: str, current_user: dict = Depends(get_current_user)):
+    """Retrieve verified live session, signal, and restriction safety health parameters."""
+    client = get_db_client()
+    
+    # Verify account ownership
+    check = await client.table("linkedin_accounts").select("*").eq("id", account_id).eq("workspace_id", current_user["workspace_id"]).execute()
+    if not check.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="LinkedIn account not found in your workspace"
+        )
+    account = check.data[0]
+    
+    from app.services.safety_monitor import check_account_safety
+    safety_data = await check_account_safety(account_id)
+    
+    return {
+        "account_id": account_id,
+        "valid": safety_data.get("valid", True),
+        "signal": safety_data.get("signal", "nominal"),
+        "status": safety_data.get("status", account.get("status", "warming_up")),
+        "safety_score": safety_data.get("safety_score", account.get("safety_score", 100))
+    }
+
 @router.put("/{account_id}/limit")
 async def update_account_limit(account_id: str, body: LimitUpdate, current_user: dict = Depends(get_current_user)):
     """Update the daily execution limit for a LinkedIn account."""

@@ -17,14 +17,14 @@ from app.api.routes.inbox import router as inbox_router
 from app.api.routes.analytics import router as analytics_router
 from app.api.routes.webhooks import router as webhooks_router
 
-api_app = FastAPI(
+app = FastAPI(
     title="Phantom-X",
     description="LinkedIn Automation & AI Outreach Platform Backend",
     version="1.0.0"
 )
 
 # CORS configuration
-api_app.add_middleware(
+app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
@@ -33,14 +33,14 @@ api_app.add_middleware(
 )
 
 # Exception handlers
-@api_app.exception_handler(HTTPException)
+@app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     return JSONResponse(
         status_code=exc.status_code,
         content={"error": exc.detail, "status_code": exc.status_code}
     )
 
-@api_app.exception_handler(Exception)
+@app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     request_id = str(uuid.uuid4())
     tb = traceback.format_exc()
@@ -62,16 +62,19 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 # Include routers
-api_app.include_router(auth_router)
-api_app.include_router(accounts_router)
-api_app.include_router(campaigns_router)
-api_app.include_router(leads_router)
-api_app.include_router(scrape_router)
-api_app.include_router(ai_router)
-api_app.include_router(inbox_router)
-api_app.include_router(analytics_router)
-api_app.include_router(webhooks_router)
+app.include_router(auth_router)
+app.include_router(accounts_router)
+app.include_router(campaigns_router)
+app.include_router(leads_router)
+app.include_router(scrape_router)
+app.include_router(ai_router)
+app.include_router(inbox_router)
+app.include_router(analytics_router)
+app.include_router(webhooks_router)
 
-@api_app.get("/health", tags=["health"])
+@app.get("/health", tags=["health"])
 async def health():
     return {"status": "ok"}
+
+# Preserve for backwards compatibility with tests
+api_app = app
