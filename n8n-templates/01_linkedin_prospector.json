@@ -1,0 +1,161 @@
+{
+  "name": "01_LinkedIn_Prospector",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "cronExpression": "0 9 * * *"
+            }
+          ]
+        }
+      },
+      "id": "e23fa2ba-b2c5-4389-9807-88989bbd8b01",
+      "name": "Schedule Trigger (9am)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PHANTOM_X_API_URL }}/scrape/trigger",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.PHANTOM_X_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"sales_navigator_url\": \"{{ $env.SALES_NAVIGATOR_ICP_URL }}\",\n  \"campaign_id\": \"{{ $env.CAMPAIGN_ID }}\"\n}",
+        "options": {}
+      },
+      "id": "50e4171d-5b32-472e-8c34-f7253cd19f21",
+      "name": "POST /scrape/trigger",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 30,
+        "unit": "minutes"
+      },
+      "id": "2db41cd2-e889-42b7-a3cf-fb25a89f921d",
+      "name": "Wait 30 Minutes",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [
+        700,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PHANTOM_X_API_URL }}/campaigns/{{ $env.CAMPAIGN_ID }}/start",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.PHANTOM_X_API_TOKEN }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c1a2f64c-b1d9-43c2-a4e9-09fca98fbc1b",
+      "name": "POST /campaigns/{id}/start",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        920,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_CHANNEL }}",
+        "text": "=🚀 *Phantom-X Scraper and Outreach Dispatched!*\n• *Campaign ID*: `{{ $env.CAMPAIGN_ID }}`\n• *Scraper Job ID*: `{{ $node[\"POST /scrape/trigger\"].json[\"job\"][\"id\"] }}`\n• *Status*: `{{ $node[\"POST /scrape/trigger\"].json[\"status\"] }}`\n• *Outreach Status*: Mapped and initiated connection request jobs.",
+        "otherOptions": {
+          "mrkdwn": true
+        }
+      },
+      "id": "7ac19cb1-fc34-45da-8ca5-d5ef5f6b21ba",
+      "name": "Slack Notify",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        1150,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger (9am)": {
+      "main": [
+        [
+          {
+            "node": "POST /scrape/trigger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST /scrape/trigger": {
+      "main": [
+        [
+          {
+            "node": "Wait 30 Minutes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 30 Minutes": {
+      "main": [
+        [
+          {
+            "node": "POST /campaigns/{id}/start",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST /campaigns/{id}/start": {
+      "main": [
+        [
+          {
+            "node": "Slack Notify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,156 @@
+{
+  "name": "03_Campaign_Sequence",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-connected-hook",
+        "options": {}
+      },
+      "id": "a1f1bcda-e2ba-4b3d-9f2e-128a4cbfa21a",
+      "name": "Webhook Trigger (lead.connected)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 3,
+        "unit": "days"
+      },
+      "id": "1db41cd2-e889-4bce-a4cf-fb25a89f921d",
+      "name": "Wait 3 Days",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [
+        430,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=={{ $env.PHANTOM_X_API_URL }}/inbox/{{ $node[\"Webhook Trigger (lead.connected)\"].json[\"body\"][\"data\"][\"id\"] }}/send",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.PHANTOM_X_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"content\":\"Hi {{ $node[\"Webhook Trigger (lead.connected)\"].json[\"body\"][\"data\"][\"full_name\"].split(' ')[0] }}, checking in to see if you had a moment to review my last note? I saw you lead efforts at {{ $node[\"Webhook Trigger (lead.connected)\"].json[\"body\"][\"data\"][\"company\"] }} and would love to hear your thoughts!\"}",
+        "options": {}
+      },
+      "id": "c1a2f64c-b1d9-43c2-a4e9-09fca98fbc1b",
+      "name": "POST /inbox/{lead_id}/send (Step 1)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 7,
+        "unit": "days"
+      },
+      "id": "fb25a89f-2db4-42b7-a3cf-fb25a89f921d",
+      "name": "Wait 7 Days",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [
+        890,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=={{ $env.PHANTOM_X_API_URL }}/inbox/{{ $node[\"Webhook Trigger (lead.connected)\"].json[\"body\"][\"data\"][\"id\"] }}/send",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.PHANTOM_X_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"content\":\"Hi {{ $node[\"Webhook Trigger (lead.connected)\"].json[\"body\"][\"data\"][\"full_name\"].split(' ')[0] }}, final brief follow-up here just in case this slipped through the cracks. Would you be open to a quick 5-min virtual coffee next Tuesday? Let me know!\"}",
+        "options": {}
+      },
+      "id": "fa2fb1cd-b89a-4c28-89c0-df919bc2cd3a",
+      "name": "POST /inbox/{lead_id}/send (Step 2)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1120,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger (lead.connected)": {
+      "main": [
+        [
+          {
+            "node": "Wait 3 Days",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 3 Days": {
+      "main": [
+        [
+          {
+            "node": "POST /inbox/{lead_id}/send (Step 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST /inbox/{lead_id}/send (Step 1)": {
+      "main": [
+        [
+          {
+            "node": "Wait 7 Days",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 7 Days": {
+      "main": [
+        [
+          {
+            "node": "POST /inbox/{lead_id}/send (Step 2)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

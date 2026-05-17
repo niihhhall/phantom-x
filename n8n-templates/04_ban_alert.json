@@ -1,0 +1,188 @@
+{
+  "name": "04_Ban_Alert",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "account-restricted-hook",
+        "options": {}
+      },
+      "id": "b1a2f64c-b1d9-43c2-a4e9-09fca98fbc1b",
+      "name": "Webhook Trigger (account.restricted)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.PHANTOM_X_API_URL }}/campaigns",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.PHANTOM_X_API_TOKEN }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e23fa2ba-b2c5-4389-9807-88989bbd8b01",
+      "name": "GET /campaigns",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        430,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const activeCampaigns = [];\nconst currentAccount = $node[\"Webhook Trigger (account.restricted)\"].json[\"body\"][\"data\"][\"id\"];\n\nfor (const item of $input.all()) {\n  const campaign = item.json;\n  // If campaign uses the restricted account in its pool, stage for pausing\n  if (campaign.status === 'active' && campaign.account_ids && campaign.account_ids.includes(currentAccount)) {\n    activeCampaigns.push({ json: { id: campaign.id, name: campaign.name } });\n  }\n}\nreturn activeCampaigns;"
+      },
+      "id": "2db41cd2-e889-42b7-a3cf-fb25a89f921d",
+      "name": "Filter Campaigns Using Account",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=={{ $env.PHANTOM_X_API_URL }}/campaigns/{{ $json[\"id\"] }}/pause",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.PHANTOM_X_API_TOKEN }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fa2fb1cd-b89a-4c28-89c0-df919bc2cd3a",
+      "name": "POST /campaigns/{id}/pause",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        890,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_CHANNEL }}",
+        "text": "=🚨 *CRITICAL: LinkedIn Account Restricted!* 🚨\n• *Account Label*: `{{ $node[\"Webhook Trigger (account.restricted)\"].json[\"body\"][\"data\"][\"label\"] }}`\n• *Proxy Country*: `{{ $node[\"Webhook Trigger (account.restricted)\"].json[\"body\"][\"data\"][\"proxy_country\"] }}`\n• *Safety Score*: `{{ $node[\"Webhook Trigger (account.restricted)\"].json[\"body\"][\"data\"][\"safety_score\"] }}%`\n• *Actions Taken*: Automatically paused all active campaigns associated with this account pool to protect prospect safety.",
+        "otherOptions": {
+          "mrkdwn": true
+        }
+      },
+      "id": "8fa1cd2b-fcda-492a-a9fa-98fa98ebcf21",
+      "name": "Slack Critical Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        1120,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.clickup.com/api/v2/list/{{ $env.CLICKUP_LIST_ID }}/task",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $env.CLICKUP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"name\":\"🔥 URGENT: Recover Restricted LinkedIn Account [{{ $node[\"Webhook Trigger (account.restricted)\"].json[\"body\"][\"data\"][\"label\"] }}]\",\"description\":\"The LinkedIn account has been flagged as restricted. Immediate mitigation, verification of proxy country ({{ $node[\"Webhook Trigger (account.restricted)\"].json[\"body\"][\"data\"][\"proxy_country\"] }}), and cookie refreshes are required.\",\"priority\":1,\"status\":\"to do\"}",
+        "options": {}
+      },
+      "id": "b1a2cbda-fec4-4cd2-b9fa-98fcdfae9cda",
+      "name": "Create ClickUp Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1120,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger (account.restricted)": {
+      "main": [
+        [
+          {
+            "node": "GET /campaigns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET /campaigns": {
+      "main": [
+        [
+          {
+            "node": "Filter Campaigns Using Account",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Campaigns Using Account": {
+      "main": [
+        [
+          {
+            "node": "POST /campaigns/{id}/pause",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Create ClickUp Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST /campaigns/{id}/pause": {
+      "main": [
+        [
+          {
+            "node": "Slack Critical Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

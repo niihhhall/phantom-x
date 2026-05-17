@@ -1,0 +1,195 @@
+{
+  "name": "02_Reply_Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-replied-hook",
+        "options": {}
+      },
+      "id": "e1f13b2c-6874-4b53-9a3d-c1248ba9b02a",
+      "name": "Webhook Trigger (lead.replied)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"claude-3-5-sonnet-20241022\",\"max_tokens\":10,\"temperature\":0.0,\"messages\":[{\"role\":\"user\",\"content\":\"Classify the LinkedIn outreach response below into exactly one category: 'interested', 'not_interested', or 'other'. Reply ONLY with the chosen word.\\n\\nResponse: \\\"{{ $json[\"body\"][\"data\"][\"message_sent\"] }}\\\"\"}]}",
+        "options": {}
+      },
+      "id": "f5f24ad2-a1f9-4bce-93cf-8aefd12d45c1",
+      "name": "Classify Intent (Claude)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        430,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.content[0].text.trim().toLowerCase() }}",
+              "value2": "interested"
+            }
+          ]
+        }
+      },
+      "id": "4da4cd8e-fc1a-42c2-8ae5-df93dcd9635b",
+      "name": "If Interested",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=={{ $env.PHANTOM_X_API_URL }}/leads/{{ $node[\"Webhook Trigger (lead.replied)\"].json[\"body\"][\"data\"][\"id\"] }}/stage",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.PHANTOM_X_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"stage\": \"booked\"\n}",
+        "options": {}
+      },
+      "id": "fa2fb1cd-b89a-4c28-89c0-df919bc2cd3a",
+      "name": "POST /leads/{id}/stage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        890,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_CHANNEL }}",
+        "text": "=🎉 *Interested Lead Detected! Booked!* 🎉\n• *Lead Name*: `{{ $node[\"Webhook Trigger (lead.replied)\"].json[\"body\"][\"data\"][\"full_name\"] }}`\n• *Company*: `{{ $node[\"Webhook Trigger (lead.replied)\"].json[\"body\"][\"data\"][\"company\"] }}`\n• *Profile*: {{ $node[\"Webhook Trigger (lead.replied)\"].json[\"body\"][\"data\"][\"profile_url\"] }}\n• *Their Reply*: \"{{ $node[\"Webhook Trigger (lead.replied)\"].json[\"body\"][\"data\"][\"message_sent\"] }}\"",
+        "otherOptions": {
+          "mrkdwn": true
+        }
+      },
+      "id": "8fa1cd2b-fcda-492a-a9fa-98fa98ebcf21",
+      "name": "Slack Notify Interested",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        1120,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_CHANNEL }}",
+        "text": "=ℹ️ *LinkedIn Reply Received (Not Interested/Other)*\n• *Lead Name*: `{{ $node[\"Webhook Trigger (lead.replied)\"].json[\"body\"][\"data\"][\"full_name\"] }}`\n• *Company*: `{{ $node[\"Webhook Trigger (lead.replied)\"].json[\"body\"][\"data\"][\"company\"] }}`\n• *Intent Classification*: `{{ $json.content[0].text.trim() }}`",
+        "otherOptions": {
+          "mrkdwn": true
+        }
+      },
+      "id": "b1a2cbda-fec4-4cd2-b9fa-98fcdfae9cda",
+      "name": "Slack Notify Other",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        890,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger (lead.replied)": {
+      "main": [
+        [
+          {
+            "node": "Classify Intent (Claude)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Intent (Claude)": {
+      "main": [
+        [
+          {
+            "node": "If Interested",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Interested": {
+      "main": [
+        [
+          {
+            "node": "POST /leads/{id}/stage",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack Notify Other",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST /leads/{id}/stage": {
+      "main": [
+        [
+          {
+            "node": "Slack Notify Interested",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
