@@ -1,0 +1,15 @@
+{
+    auto_https off
+}
+
+http://api.localhost {
+    reverse_proxy api:8000
+}
+
+http://n8n.localhost {
+    reverse_proxy n8n:5678
+}
+
+http://app.localhost {
+    respond "Phantom-X React App Dashboard - White-Labeled Outreach" 200
+}
