@@ -41,28 +41,14 @@ Open `.env` and fill in your details:
 *   `DECODO_USERNAME` / `DECODO_PASSWORD`: To secure high-trust residential proxy routing per account country.
 *   `APOLLO_API_KEY`: Required for multi-channel email enrichment waterfall steps.
 
-### 4. Boot Up the Containers
-Launch the container orchestration stack:
-```bash
-docker compose up -d --build
-```
-This boots all 6 microservices in the background. Caddy is exposed on port `80` (HTTP) and `443` (HTTPS) of your server.
-
-### 5. Seeding the Database (Migrations)
-To set up all relational schemas (workspaces, campaigns, leads, and the limits tracker) inside your local Postgres container, connect to the database and run the migration scripts located in the `supabase/migrations/` directory:
+### 4. Run the Zero-Setup Bootstrapper
+Run our unified cross-platform Python seeding bootstrapper to automatically boot containers, wait for PostgreSQL/n8n services, execute all 10 SQL migrations, and import your out-of-the-box automation templates:
 
 ```bash
-# Execute local database migrations via Docker
-docker exec -i phantomx-db psql -U postgres -d phantomx < ../supabase/migrations/001_workspaces.sql
-docker exec -i phantomx-db psql -U postgres -d phantomx < ../supabase/migrations/002_users.sql
-docker exec -i phantomx-db psql -U postgres -d phantomx < ../supabase/migrations/003_linkedin_accounts.sql
-docker exec -i phantomx-db psql -U postgres -d phantomx < ../supabase/migrations/004_campaigns.sql
-docker exec -i phantomx-db psql -U postgres -d phantomx < ../supabase/migrations/005_leads.sql
-docker exec -i phantomx-db psql -U postgres -d phantomx < ../supabase/migrations/006_messages.sql
-docker exec -i phantomx-db psql -U postgres -d phantomx < ../supabase/migrations/007_jobs.sql
-docker exec -i phantomx-db psql -U postgres -d phantomx < ../supabase/migrations/008_webhooks.sql
-docker exec -i phantomx-db psql -U postgres -d phantomx < ../supabase/migrations/009_billing_and_tenancy.sql
+python bootstrap.py
 ```
+
+This single command completes the entire sandboxed initialization automatically and prints the links to your local portals!
 
 ---
 
