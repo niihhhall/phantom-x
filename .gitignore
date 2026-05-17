@@ -126,3 +126,7 @@ venv.bak/
 # Docker logs and local volumes
 caddy_data/
 n8n_data/
+
+# Private PDF and documentation assets
+pdf/
+*.pdf
