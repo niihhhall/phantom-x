@@ -110,3 +110,8 @@ class BrowserAgent:
                     "profile_url": "https://www.linkedin.com/in/sarah-connor-demo"
                 }
             ]
+
+    async def discover_leads(self, icp_description: str, max_leads: int = 20) -> List[Dict[str, Any]]:
+        """Autonomously discover LinkedIn leads matching the target ICP description."""
+        return await self.find_and_connect(icp_description, max_leads)
+

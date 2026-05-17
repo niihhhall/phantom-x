@@ -32,6 +32,23 @@ class LinkedInBrowser:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.close()
 
+    async def simulate_history(self):
+        """Simulate realistic browser history before accessing target site."""
+        logger.info("Simulating realistic history entries...")
+        try:
+            # Seed history with standard search engine queries to bypass headless profiles check
+            await self.page.goto("https://www.google.com", wait_until="domcontentloaded")
+            await human_delay(2.0, 4.0)
+            
+            # Populate history stack with realistic navigational context
+            await self.page.evaluate("""
+                history.pushState({}, '', '/search?q=linkedin+jobs');
+                history.pushState({}, '', '/search?q=professional+networking+platform');
+            """)
+            await human_delay(1.5, 3.0)
+        except Exception as e:
+            logger.warning(f"History simulation warning: {e}")
+
     async def init_browser(self):
         """Initialize browser instance with proxy and anti-detection custom configurations."""
         self.playwright = await async_playwright().start()
@@ -46,6 +63,19 @@ class LinkedInBrowser:
             }
             logger.info(f"Routing browser via Decodo proxy country={self.proxy_country}")
             
+        # Randomize screen resolution within normal desktop ranges
+        resolutions = [
+            {"width": 1920, "height": 1080},
+            {"width": 1440, "height": 900},
+            {"width": 1536, "height": 864},
+            {"width": 1366, "height": 768},
+            {"width": 1280, "height": 800}
+        ]
+        chosen_res = random.choice(resolutions)
+        width = chosen_res["width"]
+        height = chosen_res["height"]
+        logger.info(f"Stealth resolution randomized to: {width}x{height}")
+            
         self.browser = await self.playwright.chromium.launch(
             headless=True,
             args=[
@@ -53,30 +83,70 @@ class LinkedInBrowser:
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-infobars",
-                "--window-size=1280,720"
+                f"--window-size={width},{height}"
             ]
         )
         
         self.context = await self.browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             proxy=proxy_config,
-            viewport={"width": 1280, "height": 720}
+            viewport={"width": width, "height": height}
         )
         
-        # Injects script to completely remove/override automation flags (navigator.webdriver override is handled natively by rebrowser-playwright at the CDP level)
+        # Injects script to randomize canvas fingerprint and spoof WebGL renderer (anti-detection stealth layer)
         await self.context.add_init_script("""
+            // Override chrome runtime object
             window.chrome = {
                 runtime: {}
             };
+            
+            // Languages spoof
             Object.defineProperty(navigator, 'languages', {
                 get: () => ['en-US', 'en']
             });
+            
+            // Plugins list spoof
             Object.defineProperty(navigator, 'plugins', {
                 get: () => [1, 2, 3, 4, 5]
             });
+            
+            // WebGL Renderer Spoofing
+            const getParameter = WebGLRenderingContext.prototype.getParameter;
+            WebGLRenderingContext.prototype.getParameter = function(parameter) {
+                // UNMASKED_VENDOR_WEBGL = 37445
+                if (parameter === 37445) {
+                    return 'Google Inc. (Intel)';
+                }
+                // UNMASKED_RENDERER_WEBGL = 37446
+                if (parameter === 37446) {
+                    const renderers = [
+                        'ANGLE (Intel, Intel(R) UHD Graphics (0x9BC8) Direct3D11 vs_5_0 ps_5_0)',
+                        'Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0',
+                        'NVIDIA GeForce RTX 3060/PCIe/SSE2'
+                    ];
+                    return renderers[Math.floor(Math.random() * renderers.length)];
+                }
+                return getParameter.apply(this, arguments);
+            };
+
+            // Canvas Fingerprint Randomization (add subtle noise to canvas calls)
+            const toDataURL = HTMLCanvasElement.prototype.toDataURL;
+            HTMLCanvasElement.prototype.toDataURL = function() {
+                const ctx = this.getContext('2d');
+                if (ctx) {
+                    // Inject imperceptible single-pixel canvas noise
+                    const oldStyle = ctx.fillStyle;
+                    ctx.fillStyle = 'rgba(0,0,0,0.01)';
+                    ctx.fillRect(0, 0, 1, 1);
+                    ctx.fillStyle = oldStyle;
+                }
+                return toDataURL.apply(this, arguments);
+            };
         """)
         
         self.page = await self.context.new_page()
+        await self.simulate_history()
+
 
     async def login_via_cookie(self, li_at: str) -> bool:
         """Inject the user session li_at cookie and verify authentication."""

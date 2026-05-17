@@ -149,3 +149,49 @@ async def api_generate_message(
         personalized_message=personalized_message,
         justification=justification
     )
+
+class DiscoverLeadsRequest(BaseModel):
+    icp_description: str = Field(..., example="Engineering leadership at fast-growing fintech or B2B SaaS companies.")
+    max_leads: Optional[int] = Field(20, example=20)
+    campaign_id: Optional[str] = Field(None, example="a1f1bcda-e2ba-4b3d-9f2e-128a4cbfa21a")
+
+@router.post("/discover-leads", response_model=Dict[str, Any])
+async def api_discover_leads(
+    body: DiscoverLeadsRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Autonomously discover and connect with LinkedIn leads matching an ICP description.
+    Integrates browser-use AI agent executing direct web scraping and CRM sync (F-02).
+    """
+    from app.services.browser_agent import BrowserAgent
+    from app.core.database import upsert_lead
+    
+    agent = BrowserAgent()
+    leads = await agent.discover_leads(body.icp_description, body.max_leads)
+    
+    saved_leads = []
+    for lead in leads:
+        lead_data = {
+            "workspace_id": current_user["workspace_id"],
+            "campaign_id": body.campaign_id,
+            "profile_url": lead.get("profile_url"),
+            "full_name": lead.get("name"),
+            "headline": lead.get("headline"),
+            "pipeline_stage": "queued"
+        }
+        if body.campaign_id:
+            try:
+                upserted = await upsert_lead(lead_data)
+                saved_leads.append(upserted)
+            except Exception as e:
+                # Fallback to local inclusion if DB constraints fail
+                saved_leads.append(lead_data)
+        else:
+            saved_leads.append(lead_data)
+            
+    return {
+        "status": "success",
+        "leads": saved_leads
+    }
+
