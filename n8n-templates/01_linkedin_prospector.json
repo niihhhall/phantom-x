@@ -25,8 +25,7 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.PHANTOM_X_API_URL }}/scrape/trigger",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
+        "authentication": "none",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -68,8 +67,7 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.PHANTOM_X_API_URL }}/campaigns/{{ $env.CAMPAIGN_ID }}/start",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
+        "authentication": "none",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [

@@ -130,3 +130,7 @@ n8n_data/
 # Private PDF and documentation assets
 pdf/
 *.pdf
+
+# Local browser persistent profiles
+app/profiles/
+

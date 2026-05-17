@@ -74,9 +74,8 @@
     {
       "parameters": {
         "method": "PUT",
-        "url": "=={{ $env.PHANTOM_X_API_URL }}/leads/{{ $node[\"Webhook Trigger (lead.replied)\"].json[\"body\"][\"data\"][\"id\"] }}/stage",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
+        "url": "={{ $env.PHANTOM_X_API_URL }}/leads/{{ $node[\"Webhook Trigger (lead.replied)\"].json[\"body\"][\"data\"][\"id\"] }}/stage",
+        "authentication": "none",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [

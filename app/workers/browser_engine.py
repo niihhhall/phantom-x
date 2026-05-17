@@ -16,10 +16,11 @@ async def human_delay(min_sec: float = 3.0, max_sec: float = 8.0):
 class LinkedInBrowser:
     """Stealth Playwright wrapper for LinkedIn interaction via residential proxies."""
     
-    def __init__(self, workspace_id: str, account_id: str, proxy_country: str = "US"):
+    def __init__(self, workspace_id: str, account_id: str, proxy_country: str = "US", headless: bool = True):
         self.workspace_id = workspace_id
         self.account_id = account_id
         self.proxy_country = proxy_country
+        self.headless = headless
         self.playwright = None
         self.browser = None
         self.context = None
@@ -53,15 +54,16 @@ class LinkedInBrowser:
         """Initialize browser instance with proxy and anti-detection custom configurations."""
         self.playwright = await async_playwright().start()
         
-        # Configure residential proxy if credentials exist
+        # Configure residential proxy if credentials exist and running in headless automation mode
         proxy_config = None
-        if settings.DECODO_USERNAME and settings.DECODO_PASSWORD:
-            proxy_config = {
-                "server": "http://gateway.decodo.co:8000",
-                "username": settings.DECODO_USERNAME,
-                "password": settings.DECODO_PASSWORD
-            }
-            logger.info(f"Routing browser via Decodo proxy country={self.proxy_country}")
+        if settings.DECODO_USERNAME and settings.DECODO_PASSWORD and self.headless:
+            if "dummy" not in settings.DECODO_USERNAME.lower():
+                proxy_config = {
+                    "server": "http://gateway.decodo.co:8000",
+                    "username": settings.DECODO_USERNAME,
+                    "password": settings.DECODO_PASSWORD
+                }
+                logger.info(f"Routing browser via Decodo proxy country={self.proxy_country}")
             
         # Randomize screen resolution within normal desktop ranges
         resolutions = [
@@ -76,8 +78,24 @@ class LinkedInBrowser:
         height = chosen_res["height"]
         logger.info(f"Stealth resolution randomized to: {width}x{height}")
             
-        self.browser = await self.playwright.chromium.launch(
-            headless=True,
+        # Determine the user data profile directory path
+        import os
+        from pathlib import Path
+        profile_dir = Path(settings.PROFILE_STORAGE_PATH) / f"profile_{self.account_id}"
+        os.makedirs(profile_dir, exist_ok=True)
+        
+        self.browser = None # persistent context handles browser lifecycle
+        
+        # Explicitly use the standard chromium engine we downloaded to bypass missing headless_shell errors
+        executable_path = Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright" / "chromium-1169" / "chrome-win" / "chrome.exe"
+        
+        self.context = await self.playwright.chromium.launch_persistent_context(
+            user_data_dir=str(profile_dir.resolve()),
+            executable_path=str(executable_path) if executable_path.exists() else None,
+            headless=self.headless,
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            proxy=proxy_config,
+            viewport={"width": width, "height": height},
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
@@ -85,12 +103,6 @@ class LinkedInBrowser:
                 "--disable-infobars",
                 f"--window-size={width},{height}"
             ]
-        )
-        
-        self.context = await self.browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            proxy=proxy_config,
-            viewport={"width": width, "height": height}
         )
         
         # Injects script to randomize canvas fingerprint and spoof WebGL renderer (anti-detection stealth layer)
@@ -144,33 +156,49 @@ class LinkedInBrowser:
             };
         """)
         
-        self.page = await self.context.new_page()
+        if self.context.pages:
+            self.page = self.context.pages[0]
+        else:
+            self.page = await self.context.new_page()
         await self.simulate_history()
 
 
     async def login_via_cookie(self, li_at: str) -> bool:
-        """Inject the user session li_at cookie and verify authentication."""
-        logger.info("Attempting session login via cookie injection...")
-        cookie = {
-            "name": "li_at",
-            "value": li_at,
-            "domain": ".linkedin.com",
-            "path": "/",
-            "secure": True,
-            "sameSite": "None"
-        }
-        await self.context.add_cookies([cookie])
+        """Inject the user session li_at cookie if needed and verify authentication."""
+        logger.info("Checking if session is already authenticated via persistent browser cache...")
         
-        # Navigate to home feed
-        await self.page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded")
-        await human_delay(4.0, 7.0)
-        
-        # Verify authenticated state
-        current_url = self.page.url
-        if "feed" in current_url:
-            logger.info("Successfully validated session via URL structure.")
-            return True
+        # Navigate to home feed to check existing persistent session
+        try:
+            await self.page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded")
+            await human_delay(3.0, 5.0)
+            if "feed" in self.page.url:
+                logger.info("Session already authenticated via persistent browser cache!")
+                return True
+        except Exception as e:
+            logger.warning(f"Error navigating during session verification check: {e}")
             
+        if li_at:
+            logger.info("Not authenticated. Attempting fallback session injection via li_at cookie...")
+            cookie = {
+                "name": "li_at",
+                "value": li_at,
+                "domain": ".linkedin.com",
+                "path": "/",
+                "secure": True,
+                "sameSite": "None"
+            }
+            await self.context.add_cookies([cookie])
+            
+            # Navigate to home feed
+            try:
+                await self.page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded")
+                await human_delay(4.0, 7.0)
+                if "feed" in self.page.url:
+                    logger.info("Successfully validated session via fallback URL structure.")
+                    return True
+            except Exception:
+                pass
+                
         try:
             # Check for standard search input element
             search_box = await self.page.wait_for_selector(".global-nav__search-input", timeout=6000)
@@ -180,7 +208,7 @@ class LinkedInBrowser:
         except Exception:
             pass
             
-        logger.warning("Failed to authenticate session using the injected cookie.")
+        logger.warning("Failed to authenticate session using either persistent cache or fallback cookie.")
         return False
 
     async def scrape_profile(self, profile_url: str) -> Dict[str, Any]:

@@ -33,9 +33,8 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=={{ $env.PHANTOM_X_API_URL }}/inbox/{{ $node[\"Webhook Trigger (lead.connected)\"].json[\"body\"][\"data\"][\"id\"] }}/send",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
+        "url": "={{ $env.PHANTOM_X_API_URL }}/inbox/{{ $node[\"Webhook Trigger (lead.connected)\"].json[\"body\"][\"data\"][\"id\"] }}/send",
+        "authentication": "none",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -76,9 +75,8 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=={{ $env.PHANTOM_X_API_URL }}/inbox/{{ $node[\"Webhook Trigger (lead.connected)\"].json[\"body\"][\"data\"][\"id\"] }}/send",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
+        "url": "={{ $env.PHANTOM_X_API_URL }}/inbox/{{ $node[\"Webhook Trigger (lead.connected)\"].json[\"body\"][\"data\"][\"id\"] }}/send",
+        "authentication": "none",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
