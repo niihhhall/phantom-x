@@ -149,3 +149,17 @@ async def generate_followup_message(profile_data: dict, step: int) -> str:
     except Exception as err:
         logger.error(f"Claude API failed in generate_followup_message: {err}")
         return fallback_message
+
+async def ai_browser_discover_leads(icp: str, max: int = 20) -> list:
+    """
+    Autonomously find and connect with leads matching the ICP using BrowserAgent.
+    """
+    try:
+        from app.services.browser_agent import BrowserAgent
+        agent = BrowserAgent()
+        leads = await agent.find_and_connect(icp_description=icp, max_leads=max)
+        return leads
+    except Exception as e:
+        logger.error(f"Failed in ai_browser_discover_leads: {e}", exc_info=True)
+        return []
+

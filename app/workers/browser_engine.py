@@ -2,7 +2,7 @@ import asyncio
 import logging
 import random
 from typing import Dict, Any, Optional
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+from rebrowser_playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from app.config import settings
 
 logger = logging.getLogger("phantomx.browser")
@@ -63,11 +63,8 @@ class LinkedInBrowser:
             viewport={"width": 1280, "height": 720}
         )
         
-        # Injects script to completely remove/override automation flags
+        # Injects script to completely remove/override automation flags (navigator.webdriver override is handled natively by rebrowser-playwright at the CDP level)
         await self.context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-            });
             window.chrome = {
                 runtime: {}
             };
@@ -170,6 +167,20 @@ class LinkedInBrowser:
         except Exception as e:
             logger.error(f"Error extracting DOM properties from profile: {e}")
             
+        # Fallback to VoyagerClient if DOM scraping is incomplete
+        if not profile_data.get("full_name") or not profile_data.get("headline"):
+            logger.info("DOM scraping yielded incomplete profile data. Querying Voyager Client fallback...")
+            if settings.LINKEDIN_EMAIL and settings.LINKEDIN_PASSWORD:
+                try:
+                    from app.services.voyager_client import VoyagerClient
+                    voyager = VoyagerClient(settings.LINKEDIN_EMAIL, settings.LINKEDIN_PASSWORD)
+                    voyager_data = await voyager.get_profile(profile_url)
+                    if voyager_data and voyager_data.get("full_name"):
+                        logger.info("Successfully populated profile fields via Voyager fallback client!")
+                        profile_data.update(voyager_data)
+                except Exception as ve:
+                    logger.error(f"Voyager fallback scraping failed: {ve}")
+                    
         return profile_data
 
     async def send_connection_request(self, profile_url: str, message: Optional[str] = None) -> bool:
