@@ -6,6 +6,7 @@ import redis
 from app.config import settings
 from app.core.auth import get_current_user, encrypt_cookie, decrypt_cookie
 from app.core.database import get_db_client, create_job
+from app.core.billing import verify_linkedin_account_quota
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 
@@ -55,7 +56,11 @@ async def list_accounts(current_user: dict = Depends(get_current_user)):
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_account(body: AccountCreate, current_user: dict = Depends(get_current_user)):
     """Register a new LinkedIn account with automatic session health validation queue."""
+    # Enforce billing/plan quota restrictions first
+    await verify_linkedin_account_quota(current_user["workspace_id"])
+    
     client = get_db_client()
+
     
     # 1. Encrypt cookie
     li_at_encrypted = encrypt_cookie(body.li_at_raw)

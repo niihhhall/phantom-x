@@ -8,11 +8,13 @@ from app.core.database import (
     update_lead_stage,
     delete_lead
 )
+from app.core.billing import verify_email_enrichment_quota
 
 router = APIRouter(prefix="/leads", tags=["leads"])
 
 class StageUpdate(BaseModel):
     stage: str = Field(..., description="Target pipeline stage")
+
 
 @router.get("", response_model=List[Dict[str, Any]])
 async def api_list_leads(
@@ -103,12 +105,16 @@ async def api_enrich_lead(
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Trigger email waterfall enrichment for a specific CRM lead."""
+    # Enforce email enrichment quota limits
+    await verify_email_enrichment_quota(current_user["workspace_id"])
+    
     lead = await get_lead_by_id(lead_id)
     if not lead or lead["workspace_id"] != current_user["workspace_id"]:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Lead not found"
         )
+
         
     from app.services.enrichment import enrich_lead_email
     from app.core.database import upsert_lead

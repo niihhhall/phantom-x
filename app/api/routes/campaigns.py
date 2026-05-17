@@ -9,6 +9,7 @@ from app.core.database import (
     update_campaign,
     delete_campaign
 )
+from app.core.billing import verify_outreach_rotation_quota, verify_email_enrichment_quota
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 
@@ -34,6 +35,11 @@ async def api_create_campaign(
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     workspace_id = current_user["workspace_id"]
+    
+    # Enforce multi-account rotation limits
+    if body.account_ids:
+        await verify_outreach_rotation_quota(workspace_id, body.account_ids)
+        
     campaign_data = {
         "workspace_id": workspace_id,
         "name": body.name,
@@ -90,6 +96,8 @@ async def api_update_campaign(
             )
         update_data["status"] = body.status
     if body.account_ids is not None:
+        # Enforce multi-account rotation limits on updates
+        await verify_outreach_rotation_quota(campaign["workspace_id"], body.account_ids)
         update_data["account_ids"] = body.account_ids
     if body.sequence is not None:
         update_data["sequence"] = body.sequence
@@ -207,6 +215,9 @@ async def api_enrich_campaign_leads(
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Trigger concurrent email waterfall enrichment for all leads in a campaign."""
+    # Enforce email enrichment quota limits
+    await verify_email_enrichment_quota(current_user["workspace_id"])
+    
     campaign = await get_campaign_by_id(campaign_id)
     if not campaign or campaign["workspace_id"] != current_user["workspace_id"]:
         raise HTTPException(

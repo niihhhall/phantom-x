@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 from app.core.auth import get_current_user
 from app.core.database import get_job_by_id
 from app.core.queue import enqueue_job
+from app.core.billing import verify_leads_quota
 
 router = APIRouter(prefix="/scrape", tags=["scrape"])
 
@@ -22,7 +23,11 @@ async def api_trigger_scrape(
     Trigger manual LinkedIn scraper or enrichment flow (F-01, F-06).
     Enqueues a background scraper job in the workspace queue.
     """
+    # Enforce leads limit check first
+    await verify_leads_quota(current_user["workspace_id"], new_import_count=1)
+    
     if not body.profile_url and not body.sales_navigator_url:
+
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Either profile_url or sales_navigator_url must be provided"
