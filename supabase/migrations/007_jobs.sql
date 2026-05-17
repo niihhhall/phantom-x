@@ -1,7 +1,7 @@
 CREATE TABLE jobs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id uuid REFERENCES workspaces(id) ON DELETE CASCADE,
-  type text CHECK (type IN ('scrape','connect','message','enrich','health_check')),
+  type text CHECK (type IN ('scrape','connect','message','enrich','health_check','warmup')),
   status text DEFAULT 'queued' CHECK (status IN ('queued','running','done','failed','retrying')),
   payload jsonb DEFAULT '{}',
   result jsonb DEFAULT '{}',

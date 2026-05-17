@@ -137,7 +137,8 @@ class MockSupabaseClient:
             "leads": [],
             "campaigns": [],
             "messages": [],
-            "jobs": []
+            "jobs": [],
+            "webhooks": []
         }
 
     def table(self, table_name):

@@ -10,7 +10,7 @@ logger.setLevel(logging.INFO)
 
 # High-authority target profiles to safely visit during warm-up
 FAMOUS_PROFILES = [
-    "https://www.linkedin.com/in/williamg gates",
+    "https://www.linkedin.com/in/williamhgates",
     "https://www.linkedin.com/in/satyanadella",
     "https://www.linkedin.com/in/reidhoffman",
     "https://www.linkedin.com/in/jeffweiner08",
