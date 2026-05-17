@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     SLACK_WEBHOOK_URL: Optional[str] = None
     LINKEDIN_EMAIL: Optional[str] = None
     LINKEDIN_PASSWORD: Optional[str] = None
+    APOLLO_API_KEY: Optional[str] = None
+    HUNTER_API_KEY: Optional[str] = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

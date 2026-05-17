@@ -264,6 +264,89 @@ class LinkedInBrowser:
             
         return False
 
+    async def send_direct_message(self, profile_url: str, message: str) -> bool:
+        """Find the message button, click to open chat window, type message, and send."""
+        logger.info(f"Attempting to send direct message to: {profile_url}")
+        await self.page.goto(profile_url, wait_until="domcontentloaded")
+        await human_delay(4.0, 7.0)
+        
+        try:
+            # Look for the primary "Message" button on the profile page
+            message_btn = None
+            buttons = await self.page.query_selector_all("button")
+            for btn in buttons:
+                text = (await btn.text_content()).strip().lower()
+                if text == "message":
+                    message_btn = btn
+                    break
+                    
+            if not message_btn:
+                # Check for "More" dropdown if Message button is hidden
+                more_btn = None
+                for btn in buttons:
+                    aria_label = await btn.get_attribute("aria-label") or ""
+                    text = (await btn.text_content()).strip().lower()
+                    if "more actions" in aria_label.lower() or "more" in text:
+                        more_btn = btn
+                        break
+                if more_btn:
+                    logger.info("Message button not visible. Clicking 'More' dropdown...")
+                    await more_btn.click()
+                    await human_delay(1.5, 3.0)
+                    
+                    dropdown_buttons = await self.page.query_selector_all("div.artdeco-dropdown__content button")
+                    for btn in dropdown_buttons:
+                        text = (await btn.text_content()).strip().lower()
+                        if text == "message":
+                            message_btn = btn
+                            break
+                            
+            if not message_btn:
+                logger.warning("Could not find a valid 'Message' button on this profile.")
+                return False
+                
+            logger.info("Found Message button. Clicking to open message panel...")
+            await message_btn.click()
+            await human_delay(3.0, 5.0)
+            
+            # Find the active message box textbox (e.g. contenteditable="true" or role="textbox")
+            textbox = await self.page.wait_for_selector(
+                "div.msg-form__contenteditable[contenteditable='true'], textarea.msg-form__textarea",
+                timeout=8000
+            )
+            if not textbox:
+                logger.error("Could not locate message input textbox.")
+                return False
+                
+            logger.info("Typing direct message...")
+            await textbox.click()
+            await human_delay(1.0, 2.0)
+            
+            # Simulate human typing
+            for char in message:
+                await textbox.type(char)
+                await asyncio.sleep(random.uniform(0.02, 0.08))
+                
+            await human_delay(2.0, 4.0)
+            
+            # Click the Send button
+            send_btn = await self.page.wait_for_selector("button.msg-form__send-button", timeout=5000)
+            if send_btn:
+                is_disabled = await send_btn.get_attribute("disabled")
+                if is_disabled is not None:
+                    logger.warning("Send button is disabled, cannot send message.")
+                    return False
+                    
+                await send_btn.click()
+                await human_delay(3.0, 5.0)
+                logger.info("Direct message sent successfully.")
+                return True
+                
+        except Exception as e:
+            logger.error(f"Failed to send direct message: {e}")
+            
+        return False
+
     async def close(self):
         """Clean up and close pages, context, and Playwright instances."""
         if self.page:

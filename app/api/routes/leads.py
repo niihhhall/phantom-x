@@ -96,3 +96,33 @@ async def api_delete_lead(
         
     success = await delete_lead(lead_id)
     return {"status": "success", "deleted": success}
+
+@router.post("/{lead_id}/enrich", response_model=Dict[str, Any])
+async def api_enrich_lead(
+    lead_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Trigger email waterfall enrichment for a specific CRM lead."""
+    lead = await get_lead_by_id(lead_id)
+    if not lead or lead["workspace_id"] != current_user["workspace_id"]:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lead not found"
+        )
+        
+    from app.services.enrichment import enrich_lead_email
+    from app.core.database import upsert_lead
+    
+    enriched_lead = await enrich_lead_email(lead)
+    
+    # Save results to CRM
+    update_data = {
+        "id": lead["id"],
+        "workspace_id": current_user["workspace_id"],
+        "profile_url": lead["profile_url"],
+        "email": enriched_lead.get("email"),
+        "email_confidence": enriched_lead.get("confidence")
+    }
+    updated = await upsert_lead(update_data)
+    return updated
+

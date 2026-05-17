@@ -69,13 +69,14 @@ async def handle_health_check(job_id: str, payload: dict) -> dict:
         return {"status": status, "is_active": is_active}
 
 async def handle_scrape(job_id: str, payload: dict) -> dict:
-    """Navigate to and scrape a prospect's profile, saving results in the database."""
+    """Navigate to and scrape search results or a single prospect's profile."""
     workspace_id = payload.get("workspace_id")
     account_id = payload.get("account_id")
     profile_url = payload.get("profile_url")
+    sales_navigator_url = payload.get("sales_navigator_url")
     campaign_id = payload.get("campaign_id")
     
-    if not workspace_id or not account_id or not profile_url:
+    if not workspace_id or not account_id or (not profile_url and not sales_navigator_url):
         raise ValueError("Missing required fields for scraping job")
         
     li_at = await get_account_cookie(account_id)
@@ -89,14 +90,27 @@ async def handle_scrape(job_id: str, payload: dict) -> dict:
         if not logged_in:
             raise RuntimeError("Failed to login using session cookie during scraping.")
             
-        profile_data = await browser.scrape_profile(profile_url)
-        profile_data["workspace_id"] = workspace_id
-        if campaign_id:
-            profile_data["campaign_id"] = campaign_id
-            
-        # Save scraped profile data to database
-        saved_lead = await upsert_lead(profile_data)
-        return {"scraped_lead_id": saved_lead.get("id"), "full_name": profile_data.get("full_name")}
+        from app.services.linkedin_scraper import scrape_full_profile, scrape_search_results
+        
+        if sales_navigator_url:
+            leads = await scrape_search_results(
+                browser=browser,
+                search_url=sales_navigator_url,
+                max_leads=20,  # limit standard run for safety
+                campaign_id=campaign_id
+            )
+            return {"scraped_leads_count": len(leads), "type": "search_results"}
+        else:
+            saved_lead = await scrape_full_profile(
+                browser=browser,
+                profile_url=profile_url,
+                campaign_id=campaign_id
+            )
+            return {
+                "scraped_lead_id": saved_lead.get("id"),
+                "full_name": saved_lead.get("full_name"),
+                "type": "single_profile"
+            }
 
 async def handle_connect(job_id: str, payload: dict) -> dict:
     """Send connection request to prospect and update pipeline stage."""
@@ -129,6 +143,60 @@ async def handle_connect(job_id: str, payload: dict) -> dict:
             
         return {"success": success, "lead_id": lead_id}
 
+async def handle_message(job_id: str, payload: dict) -> dict:
+    """Send direct message via browser and update pipeline status."""
+    workspace_id = payload.get("workspace_id")
+    account_id = payload.get("account_id")
+    profile_url = payload.get("profile_url")
+    lead_id = payload.get("lead_id")
+    message = payload.get("message")
+    
+    if not workspace_id or not account_id or not profile_url or not lead_id or not message:
+        raise ValueError("Missing required fields for messaging job")
+        
+    li_at = await get_account_cookie(account_id)
+    
+    client = get_db_client()
+    acc_res = await client.table("linkedin_accounts").select("*").eq("id", account_id).execute()
+    account = acc_res.data[0] if acc_res.data else {"actions_today": 0, "proxy_country": "US"}
+    proxy_country = account.get("proxy_country", "US")
+    
+    async with LinkedInBrowser(workspace_id, account_id, proxy_country) as browser:
+        logged_in = await browser.login_via_cookie(li_at)
+        if not logged_in:
+            raise RuntimeError("Failed to login using session cookie during messaging.")
+            
+        success = await browser.send_direct_message(profile_url, message)
+        if success:
+            # Log action usage to account limits
+            await client.table("linkedin_accounts").update({"actions_today": account["actions_today"] + 1}).eq("id", account_id).execute()
+            
+        return {"success": success, "lead_id": lead_id}
+
+async def handle_warmup(job_id: str, payload: dict) -> dict:
+    """Run incremental safety warm-up actions via browser."""
+    workspace_id = payload.get("workspace_id")
+    account_id = payload.get("account_id")
+    
+    if not workspace_id or not account_id:
+        raise ValueError("Missing required fields for warm-up job")
+        
+    li_at = await get_account_cookie(account_id)
+    
+    client = get_db_client()
+    acc_res = await client.table("linkedin_accounts").select("*").eq("id", account_id).execute()
+    account = acc_res.data[0] if acc_res.data else {"proxy_country": "US"}
+    proxy_country = account.get("proxy_country", "US")
+    
+    async with LinkedInBrowser(workspace_id, account_id, proxy_country) as browser:
+        logged_in = await browser.login_via_cookie(li_at)
+        if not logged_in:
+            raise RuntimeError("Failed to login using session cookie during warm-up execution.")
+            
+        from app.services.warmup_scheduler import run_warmup_actions
+        res = await run_warmup_actions(account_id, browser)
+        return res
+
 async def process_job(job_data: dict):
     """Router to coordinate job execution based on type."""
     job_id = job_data.get("id")
@@ -145,6 +213,10 @@ async def process_job(job_data: dict):
             res = await handle_scrape(job_id, payload)
         elif job_type == "connect":
             res = await handle_connect(job_id, payload)
+        elif job_type == "message":
+            res = await handle_message(job_id, payload)
+        elif job_type == "warmup":
+            res = await handle_warmup(job_id, payload)
         else:
             raise ValueError(f"Unknown job type: {job_type}")
             

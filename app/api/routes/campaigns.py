@@ -200,3 +200,21 @@ async def api_delete_campaign(
     
     success = await delete_campaign(campaign_id)
     return {"status": "success", "deleted": success}
+
+@router.post("/{campaign_id}/enrich-all", response_model=Dict[str, Any])
+async def api_enrich_campaign_leads(
+    campaign_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Trigger concurrent email waterfall enrichment for all leads in a campaign."""
+    campaign = await get_campaign_by_id(campaign_id)
+    if not campaign or campaign["workspace_id"] != current_user["workspace_id"]:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Campaign not found"
+        )
+        
+    from app.services.enrichment import enrich_campaign_leads
+    res = await enrich_campaign_leads(campaign_id, current_user["workspace_id"])
+    return res
+

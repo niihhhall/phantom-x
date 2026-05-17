@@ -1,10 +1,11 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from app.core.database import (
     get_lead_by_profile_url,
     create_message,
-    update_lead_stage
+    update_lead_stage,
+    get_db_client
 )
 from app.core.auth import get_current_user
 
@@ -65,3 +66,65 @@ async def api_linkedin_incoming_webhook(
         "message_record": msg_record,
         "lead_stage": updated_lead.get("pipeline_stage")
     }
+
+class WebhookRegisterRequest(BaseModel):
+    url: str = Field(..., example="https://my-endpoint.com/webhook")
+    events: List[str] = Field(..., example=["lead.connected", "lead.replied"])
+
+@router.post("/register", response_model=Dict[str, Any], status_code=status.HTTP_201_CREATED)
+async def api_register_webhook(
+    body: WebhookRegisterRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Register a new webhook url and array of events to subscribe to."""
+    workspace_id = current_user["workspace_id"]
+    client = get_db_client()
+    
+    # Insert new webhook record
+    res = await client.table("webhooks").insert({
+        "workspace_id": workspace_id,
+        "url": body.url,
+        "events": body.events
+    }).execute()
+    
+    if not res.data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to register webhook"
+        )
+        
+    return {
+        "status": "success",
+        "webhook": res.data[0]
+    }
+
+@router.get("", response_model=List[Dict[str, Any]])
+async def api_list_webhooks(
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """List all registered webhooks for this workspace."""
+    workspace_id = current_user["workspace_id"]
+    client = get_db_client()
+    res = await client.table("webhooks").select("*").eq("workspace_id", workspace_id).execute()
+    return res.data or []
+
+@router.delete("/{webhook_id}", response_model=Dict[str, Any])
+async def api_delete_webhook(
+    webhook_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Delete a registered webhook."""
+    workspace_id = current_user["workspace_id"]
+    client = get_db_client()
+    
+    # Check ownership
+    check_res = await client.table("webhooks").select("*").eq("id", webhook_id).eq("workspace_id", workspace_id).execute()
+    if not check_res.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Webhook not found"
+        )
+        
+    await client.table("webhooks").delete().eq("id", webhook_id).execute()
+    return {"status": "success", "deleted": True}
+

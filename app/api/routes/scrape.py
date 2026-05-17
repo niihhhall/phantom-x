@@ -2,7 +2,8 @@ from typing import Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from app.core.auth import get_current_user
-from app.core.database import create_job, get_job_by_id
+from app.core.database import get_job_by_id
+from app.core.queue import enqueue_job
 
 router = APIRouter(prefix="/scrape", tags=["scrape"])
 
@@ -34,15 +35,14 @@ async def api_trigger_scrape(
         "account_id": body.account_id
     }
     
-    job_data = {
-        "workspace_id": current_user["workspace_id"],
-        "type": "scrape",
-        "status": "queued",
-        "payload": job_payload,
-        "retries": 0
-    }
+    # Push job details to Redis queue and database status tracking
+    job_id = await enqueue_job(
+        job_type="scrape",
+        payload=job_payload,
+        workspace_id=current_user["workspace_id"]
+    )
     
-    job = await create_job(job_data)
+    job = await get_job_by_id(job_id)
     return {
         "status": "success",
         "job": job

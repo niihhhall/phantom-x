@@ -76,7 +76,25 @@ async def update_lead_stage(lead_id: str, stage: str) -> Dict[str, Any]:
         update_data["sent_at"] = now
         
     res = await client.table("leads").update(update_data).eq("id", lead_id).execute()
-    return res.data[0] if res.data else {}
+    lead = res.data[0] if res.data else {}
+    
+    # Trigger event notification webhooks (Priority 4)
+    if lead:
+        workspace_id = lead.get("workspace_id")
+        if stage == "connected":
+            try:
+                from app.services.webhook_service import fire_webhook
+                await fire_webhook("lead.connected", lead, workspace_id)
+            except Exception:
+                pass
+        elif stage == "replied":
+            try:
+                from app.services.webhook_service import fire_webhook
+                await fire_webhook("lead.replied", lead, workspace_id)
+            except Exception:
+                pass
+                
+    return lead
 
 async def get_lead_by_id(lead_id: str) -> Optional[Dict[str, Any]]:
     """Fetch a single lead by its ID."""
